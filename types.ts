@@ -23,3 +23,11 @@ export interface Colors {
   text: string;
   textSecondary: string;
 }
+
+export type TutorTone = 'simple' | 'standard' | 'technical';
+
+export interface TutorMessage {
+    sender: 'user' | 'ai';
+    text: string;
+    imageUrl?: string;
+}

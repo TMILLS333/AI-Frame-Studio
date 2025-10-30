@@ -1,5 +1,5 @@
 import { GoogleGenAI, Modality, Type } from '@google/genai';
-import { Theme, Colors } from '../types';
+import { Theme, Colors, TutorTone } from '../types';
 
 export const DEFAULT_FRAME_GENERATION_BASE_PROMPT = `
 You are an AI inpainting specialist. I have provided an image that contains a central photo surrounded by a blank white area.
@@ -146,5 +146,57 @@ export const generateAppCustomization = async (userPrompt: string, systemInstruc
     } catch (error) {
         console.error("Error generating app customization:", error);
         throw new Error("Failed to generate app customization. The AI might be having trouble with the request.");
+    }
+};
+
+export const askGeminiTutor = async (
+    query: string,
+    tone: TutorTone,
+    appConfig: object,
+    base64Image: string | null = null,
+): Promise<string> => {
+    if (!process.env.API_KEY) {
+        throw new Error("API_KEY environment variable not set");
+    }
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    const toneInstructions = {
+        simple: "Explain your answer in simple, non-technical terms, using an analogy if possible. Be friendly and encouraging.",
+        standard: "Provide a clear and concise explanation.",
+        technical: "Provide a detailed, technical explanation suitable for a developer. You can mention underlying concepts and technologies.",
+    };
+
+    const systemInstruction = `You are "Professor Frame", a helpful and witty AI assistant embedded within a web application called 'Frame Studio'. Your personality is that of a creative art professor.
+    Your role is to answer user questions *only* about this app and the AI/design concepts it demonstrates.
+    The app allows users to upload a photo, generate a creative frame around it using AI, and customize the entire app's theme (colors, text, etc.).
+    Do not answer questions unrelated to this application. If asked an off-topic question, politely steer the conversation back to the app.
+    Here is the app's current live configuration for your context:
+    ${JSON.stringify(appConfig, null, 2)}`;
+
+    const fullQuery = `${toneInstructions[tone]}\n\nUser Question: "${query}"`;
+    
+    const contents: any = { parts: [{ text: fullQuery }] };
+
+    if (base64Image) {
+        contents.parts.unshift({
+            inlineData: {
+                mimeType: 'image/jpeg', // Assuming jpeg, could be dynamic
+                data: base64Image.split(',')[1],
+            },
+        });
+    }
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: contents,
+            config: {
+                systemInstruction,
+            },
+        });
+        return response.text;
+    } catch (error) {
+        console.error("Error querying Gemini Tutor:", error);
+        throw new Error("Professor Frame seems to be on a coffee break. Please try again in a moment.");
     }
 };

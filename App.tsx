@@ -1,19 +1,16 @@
-
-
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import Cropper from 'react-easy-crop';
 import type { Point } from 'react-easy-crop';
-import { Step, Theme, Area, Colors } from './types';
+import { Step, Theme, Area, Colors, TutorTone, TutorMessage } from './types';
 import { getCroppedImg, addMarginToImage } from './utils/imageUtils';
-import { generateFrame, generateAppCustomization, DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION, DEFAULT_FRAME_GENERATION_BASE_PROMPT } from './services/geminiService';
+import { generateFrame, generateAppCustomization, DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION, DEFAULT_FRAME_GENERATION_BASE_PROMPT, askGeminiTutor } from './services/geminiService';
 // FIX: Renamed `Type` to `TypeIcon` to prevent naming conflicts with `@google/genai`'s `Type` enum.
 import {
     UploadCloud, Sparkles, ArrowLeft, Download, RotateCw, Settings, ChevronDown, Type as TypeIcon, Wand2, Wrench,
     Anchor, Award, Bike, BookOpen, Briefcase, Brush, Camera, Castle, Cat, Cherry, Cloud, Code, Compass,
     Cpu, Crown, Diamond, Feather, Flag, Flame, Flower, Gamepad2, Gem, Ghost, Gift, Globe, Grape, Heart,
     KeyRound, Leaf, Lightbulb, Map, Moon, Mountain, Music, Palette, Plane, Puzzle, Rocket, Shield, Ship,
-    Star, Sun, Swords, TreePine, Trophy, Umbrella, Watch, Wind, Medal, Info, X
+    Star, Sun, Swords, TreePine, Trophy, Umbrella, Watch, Wind, Medal, Info, X, Copy, Bot, Send, Paperclip
 } from 'lucide-react';
 
 const DEFAULT_THEMES: Theme[] = [
@@ -64,6 +61,154 @@ const DEFAULT_COLORS: Colors = {
     textSecondary: '#D1D5DB',
 };
 
+// --- Helper function for syntax highlighting ---
+const syntaxHighlight = (jsonString: string) => {
+  if (!jsonString) return '';
+  let json = jsonString.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // This regex matches any quoted string, and uses a replacer function to check if it's a key (followed by a colon).
+  return json.replace(/"((?:\\.|[^"\\])*)"(\s*:)?/g, (match, stringContent, isKey) => {
+      const cls = isKey ? 'json-key' : 'json-string';
+      const value = `"${stringContent}"`;
+      // If it's a key, we add the colon back, outside the span, to prevent it from being part of the key's content.
+      return `<span class="${cls}">${value}</span>` + (isKey ? ':' : '');
+    })
+    .replace(/\b(true|false)\b/g, '<span class="json-boolean">$1</span>')
+    // A more specific regex for numbers to avoid matching them inside strings.
+    .replace(/(:\s*|\s*,\s*|\s*\[\s*)(\d+\.?\d*)\b/g, (match, prefix, number) => `${prefix}<span class="json-number">${number}</span>`)
+    .replace(/\b(null)\b/g, '<span class="json-null">$1</span>');
+};
+
+const GeminiTutor: React.FC<{ appConfig: object, colors: Colors, isOpen: boolean, onToggle: () => void }> = ({ appConfig, colors, isOpen, onToggle }) => {
+    const [messages, setMessages] = useState<TutorMessage[]>([]);
+    const [query, setQuery] = useState('');
+    const [tone, setTone] = useState<TutorTone>('standard');
+    const [isLoading, setIsLoading] = useState(false);
+    const [imageToSend, setImageToSend] = useState<string | null>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    useEffect(() => {
+        if (isOpen && messages.length === 0) {
+            setMessages([{ sender: 'ai', text: "Greetings! I'm Professor Frame, your guide to this studio. Ask me anything about the app, its features, or the AI concepts at play. You can even upload an image!" }]);
+        }
+    }, [isOpen, messages.length]);
+
+    useEffect(scrollToBottom, [messages]);
+
+    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                setImageToSend(event.target?.result as string);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+    
+    const handleSend = async () => {
+        if (!query.trim() && !imageToSend) return;
+        const userMessage: TutorMessage = { sender: 'user', text: query, imageUrl: imageToSend || undefined };
+        setMessages(prev => [...prev, userMessage]);
+        setQuery('');
+        setImageToSend(null);
+        setIsLoading(true);
+
+        try {
+            const aiResponse = await askGeminiTutor(query, tone, appConfig, imageToSend);
+            setMessages(prev => [...prev, { sender: 'ai', text: aiResponse }]);
+        } catch (error: any) {
+            setMessages(prev => [...prev, { sender: 'ai', text: `Oops! ${error.message}` }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <div className={`fixed top-0 right-0 h-full bg-gray-900 border-l border-white/20 shadow-2xl z-50 flex flex-col transition-transform duration-500 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ width: '400px', maxWidth: '90vw' }}>
+            <header className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                    <Brush className="w-6 h-6" style={{ color: colors.primary }}/>
+                    <h2 className="text-lg font-bold" style={{ color: colors.primary }}>Professor Frame</h2>
+                </div>
+                <button onClick={onToggle} className="p-2 rounded-full hover:bg-white/10">
+                    <X className="w-6 h-6" style={{ color: colors.textSecondary }} />
+                </button>
+            </header>
+
+            <div className="flex-grow p-4 overflow-y-auto space-y-4">
+                {messages.map((msg, index) => (
+                    <div key={index} className={`flex items-start gap-3 ${msg.sender === 'user' ? 'justify-end' : ''}`}>
+                        {msg.sender === 'ai' && <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: colors.primary }}><Brush className="w-5 h-5 text-black" /></div>}
+                        <div className={`max-w-xs md:max-w-md p-3 rounded-lg ${msg.sender === 'ai' ? 'bg-black/20 text-left' : 'bg-pink-700 text-white text-right'}`}>
+                            {msg.imageUrl && <img src={msg.imageUrl} alt="User upload" className="rounded-lg mb-2 max-w-full h-auto" />}
+                            <p className="text-sm" style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</p>
+                        </div>
+                    </div>
+                ))}
+                {isLoading && (
+                     <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: colors.primary }}><Brush className="w-5 h-5 text-black" /></div>
+                        <div className="max-w-xs md:max-w-md p-3 rounded-lg bg-black/20">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                <div ref={messagesEndRef} />
+            </div>
+
+            <footer className="p-4 border-t border-white/10 flex-shrink-0 bg-gray-900/50">
+                 {imageToSend && (
+                    <div className="mb-2 p-2 bg-black/20 rounded-lg relative">
+                        <img src={imageToSend} alt="Preview" className="w-20 h-20 object-cover rounded-md"/>
+                        <button onClick={() => setImageToSend(null)} className="absolute top-1 right-1 bg-black/50 rounded-full p-0.5">
+                            <X className="w-4 h-4 text-white"/>
+                        </button>
+                    </div>
+                )}
+                <div className="mb-3">
+                    <label className="text-xs font-bold mb-2 block" style={{ color: colors.textSecondary }}>Explanation Style</label>
+                    <div className="flex gap-2">
+                        {(['simple', 'standard', 'technical'] as TutorTone[]).map((t) => (
+                            <button key={t} onClick={() => setTone(t)} className={`flex-1 text-xs font-bold py-2 px-3 rounded-md transition-colors ${tone === t ? 'text-black' : 'bg-black/20 hover:bg-white/10'}`} style={{ backgroundColor: tone === t ? colors.primary : undefined }}>
+                                {t.charAt(0).toUpperCase() + t.slice(1)}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
+                    <button onClick={() => fileInputRef.current?.click()} className="p-3 rounded-lg transition-colors bg-gray-800 hover:bg-gray-700" disabled={isLoading}>
+                        <Paperclip className="w-5 h-5" style={{color: colors.textSecondary}} />
+                    </button>
+                    <textarea
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                        placeholder="e.g., What is 'Temperature'?"
+                        rows={1}
+                        className="flex-grow p-2 bg-gray-800 border border-white/20 rounded-lg resize-none"
+                        disabled={isLoading}
+                    />
+                    <button onClick={handleSend} disabled={isLoading || (!query.trim() && !imageToSend)} className="p-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" style={{ backgroundColor: colors.secondary }}>
+                        <Send className="w-5 h-5 text-white" />
+                    </button>
+                </div>
+            </footer>
+        </div>
+    );
+};
+
+
 const App: React.FC = () => {
   const [step, setStep] = useState<Step>('upload');
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
@@ -92,6 +237,9 @@ const App: React.FC = () => {
   const [isCustomizing, setIsCustomizing] = useState<boolean>(false);
   const [iconSearchQuery, setIconSearchQuery] = useState('');
   const [framePromptGuardrails, setFramePromptGuardrails] = useState<string>('');
+  const [showCodePreview, setShowCodePreview] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [isTutorOpen, setIsTutorOpen] = useState(false);
 
   useEffect(() => {
     // Dynamic Theming Effect
@@ -116,6 +264,11 @@ const App: React.FC = () => {
             transform: rotate(360deg);
         }
       }
+      .json-key { color: ${colors.primary}; }
+      .json-string { color: #A5B4FC; } /* A soft indigo for strings */
+      .json-number { color: ${colors.secondary}; }
+      .json-boolean { color: ${colors.secondary}; }
+      .json-null { color: #9CA3AF; } /* Gray */
     `;
     
     body.style.background = `linear-gradient(-45deg, ${colors.backgroundStart}, ${colors.backgroundEnd}, ${colors.backgroundStart}, ${colors.backgroundEnd})`;
@@ -252,6 +405,60 @@ const App: React.FC = () => {
     }, 300);
   };
 
+    const renderConfigurationPreview = () => {
+        const currentConfig = {
+            themes: editableThemes,
+            ui: uiTexts,
+            aiConfig: {
+                temperature,
+                topP,
+                topK,
+                framePromptGuardrails
+            }
+        };
+        const configString = JSON.stringify(currentConfig, null, 2);
+
+        const handleCopy = () => {
+            navigator.clipboard.writeText(configString).then(() => {
+                setCopySuccess(true);
+                setTimeout(() => setCopySuccess(false), 2000);
+            });
+        };
+
+        return (
+            <div className="sticky top-0 pt-1 h-full">
+                <div className="bg-black/20 rounded-lg overflow-hidden h-full flex flex-col">
+                    <div className="flex justify-between items-center p-4 border-b border-white/10 flex-shrink-0">
+                        <div className="flex items-center gap-3">
+                            <Code className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--color-primary)' }}/>
+                            <h3 className="font-bold text-base" style={{ color: 'var(--color-text)' }}>Live Configuration</h3>
+                        </div>
+                        <button
+                            onClick={handleCopy}
+                            className="p-2 rounded-md hover:bg-white/20 transition-colors text-xs flex items-center gap-1.5"
+                            style={{ color: 'var(--color-text-secondary)'}}
+                        >
+                            {copySuccess ? (
+                                <>
+                                    <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--color-primary)'}} /> Copied!
+                                </>
+                            ) : (
+                                <>
+                                    <Copy className="w-3.5 h-3.5" /> Copy Code
+                                </>
+                            )}
+                        </button>
+                    </div>
+                    <div className="p-4 bg-black/10 flex-grow overflow-y-auto">
+                        <pre className="text-xs font-mono w-full h-full pr-2">
+                            <code dangerouslySetInnerHTML={{ __html: syntaxHighlight(configString) }} />
+                        </pre>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
   const renderSettingsModal = () => {
     const renderPickerView = () => (
         <>
@@ -341,216 +548,218 @@ const App: React.FC = () => {
         : [];
 
       return (
-        <>
-            <h2 className="text-xl font-bold mb-4 text-center" style={{ color: 'var(--color-primary)' }}>Practice Mode</h2>
+        <div>
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold" style={{ color: 'var(--color-primary)' }}>Practice Mode</h2>
+            </div>
             
-            <div className="space-y-2">
-                <div className="bg-black/20 rounded-lg overflow-hidden transition-all duration-300">
-                   <button
-                       onClick={() => setActiveAccordion(activeAccordion === 'themes' ? null : 'themes')}
-                       className="w-full flex justify-between items-center p-4 text-left hover:bg-white/5 transition-colors"
-                       aria-expanded={activeAccordion === 'themes' || activeAccordion?.startsWith('theme-')}
-                       aria-controls="themes-editor"
-                   >
-                       <div className="flex items-center gap-4">
-                            <Palette className="w-8 h-8 flex-shrink-0" style={{ color: 'var(--color-primary)' }}/>
-                            <span className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>Edit Themes</span>
-                       </div>
-                       <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${activeAccordion === 'themes' || activeAccordion?.startsWith('theme-') ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-secondary)' }} />
-                   </button>
-                    <div
-                        id="themes-editor"
-                        className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === 'themes' || activeAccordion?.startsWith('theme-') ? 'max-h-[1000px]' : 'max-h-0'}`}
-                    >
-                        <div className="p-4 border-t border-white/10 space-y-4 bg-black/10">
-                        {editableThemes.map((theme, index) => (
-                            <div key={theme.id} className="bg-black/20 rounded-lg overflow-hidden transition-all duration-300">
-                               <button
-                                   onClick={() => {
-                                       const newAccordion = activeAccordion === `theme-${index}` ? 'themes' : `theme-${index}`;
-                                       setActiveAccordion(newAccordion);
-                                       setIconSearchQuery('');
-                                   }}
-                                   className="w-full flex justify-between items-center p-4 text-left hover:bg-white/5 transition-colors"
-                                   aria-expanded={activeAccordion === `theme-${index}`}
-                                   aria-controls={`theme-editor-${index}`}
-                               >
-                                   <div className="flex items-center gap-4">
-                                       <div className="w-12 h-10 flex items-center justify-center bg-gray-800 rounded-md flex-shrink-0">
-                                           {React.createElement(iconComponents[theme.iconName] || Sparkles, { style: { color: 'var(--color-primary)', width: '24px', height: '24px' } })}
-                                       </div>
-                                       <span className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>{theme.name}</span>
-                                   </div>
-                                   <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${activeAccordion === `theme-${index}` ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-secondary)' }} />
-                               </button>
-                                <div
-                                    id={`theme-editor-${index}`}
-                                    className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === `theme-${index}` ? 'max-h-[600px]' : 'max-h-0'}`}
-                                >
-                                    <div className="p-4 border-t border-white/10 space-y-4 bg-black/10">
-                                        <div>
-                                            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Theme Name</label>
-                                            <input type="text" value={theme.name} onChange={(e) => handleThemeUpdate(index, 'name', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}} />
-                                         </div>
-                                        <div>
-                                            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Description</label>
-                                            <input type="text" value={theme.description} onChange={(e) => handleThemeUpdate(index, 'description', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}} />
+            <div className="w-full">
+                <div className="space-y-4">
+                    {/* Accordions Container */}
+                    <div className="bg-black/20 rounded-lg overflow-hidden transition-all duration-300">
+                        <button
+                            onClick={() => setActiveAccordion(activeAccordion === 'themes' ? null : 'themes')}
+                            className="w-full flex justify-between items-center p-4 text-left hover:bg-white/5 transition-colors"
+                            aria-expanded={activeAccordion === 'themes' || activeAccordion?.startsWith('theme-')}
+                            aria-controls="themes-editor"
+                        >
+                            <div className="flex items-center gap-4">
+                                <Palette className="w-8 h-8 flex-shrink-0" style={{ color: 'var(--color-primary)' }}/>
+                                <span className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>Edit Themes</span>
+                            </div>
+                            <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${activeAccordion === 'themes' || activeAccordion?.startsWith('theme-') ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-secondary)' }} />
+                        </button>
+                        <div
+                            id="themes-editor"
+                            className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === 'themes' || activeAccordion?.startsWith('theme-') ? 'max-h-[1000px]' : 'max-h-0'}`}
+                        >
+                            <div className="p-4 border-t border-white/10 space-y-4 bg-black/10">
+                            {editableThemes.map((theme, index) => (
+                                <div key={theme.id} className="bg-black/20 rounded-lg overflow-hidden transition-all duration-300">
+                                    <button
+                                        onClick={() => {
+                                            const newAccordion = activeAccordion === `theme-${index}` ? 'themes' : `theme-${index}`;
+                                            setActiveAccordion(newAccordion);
+                                            setIconSearchQuery('');
+                                        }}
+                                        className="w-full flex justify-between items-center p-4 text-left hover:bg-white/5 transition-colors"
+                                        aria-expanded={activeAccordion === `theme-${index}`}
+                                        aria-controls={`theme-editor-${index}`}
+                                    >
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-10 flex items-center justify-center bg-gray-800 rounded-md flex-shrink-0">
+                                                {React.createElement(iconComponents[theme.iconName] || Sparkles, { style: { color: 'var(--color-primary)', width: '24px', height: '24px' } })}
+                                            </div>
+                                            <span className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>{theme.name}</span>
                                         </div>
-                                        <div>
-                                            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>AI Prompt</label>
-                                            <textarea rows={4} value={theme.prompt} onChange={(e) => handleThemeUpdate(index, 'prompt', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}} />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Theme Icon</label>
-                                            <input
-                                              type="text"
-                                              placeholder="Search for an icon by name..."
-                                              value={iconSearchQuery}
-                                              onChange={(e) => setIconSearchQuery(e.target.value)}
-                                              className="w-full p-2 bg-gray-800 border border-white/20 rounded-md mb-2" style={{ color: 'var(--color-text)'}}
-                                            />
-                                            {iconSearchQuery && (
-                                              <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-2 mt-2 h-32 overflow-y-auto pr-2">
-                                                  {filteredIcons.length > 0 ? (
-                                                      filteredIcons.map(iconName => (
-                                                          <button
-                                                              key={iconName}
-                                                              onClick={() => {
-                                                                  handleThemeUpdate(index, 'iconName', iconName);
-                                                                  setActiveAccordion('themes'); // Go back to parent accordion
-                                                                  setIconSearchQuery('');
-                                                              }}
-                                                              className="p-2 rounded-md flex items-center justify-center bg-gray-800 hover:bg-gray-700 transition-all focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                                                              aria-label={`Select ${iconName} icon`}
-                                                          >
-                                                              {React.createElement(iconComponents[iconName], { style: { color: colors.textSecondary, width: '24px', height: '24px' } })}
-                                                          </button>
-                                                      ))
-                                                  ) : (
-                                                      <p className="col-span-full text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>No icons found.</p>
-                                                  )}
-                                              </div>
-                                            )}
+                                        <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${activeAccordion === `theme-${index}` ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-secondary)' }} />
+                                    </button>
+                                    <div
+                                        id={`theme-editor-${index}`}
+                                        className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === `theme-${index}` ? 'max-h-[600px]' : 'max-h-0'}`}
+                                    >
+                                        <div className="p-4 border-t border-white/10 space-y-4 bg-black/10">
+                                            <div>
+                                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Theme Name</label>
+                                                <input type="text" value={theme.name} onChange={(e) => handleThemeUpdate(index, 'name', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}} />
+                                                </div>
+                                            <div>
+                                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Description</label>
+                                                <input type="text" value={theme.description} onChange={(e) => handleThemeUpdate(index, 'description', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}} />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>AI Prompt</label>
+                                                <textarea rows={4} value={theme.prompt} onChange={(e) => handleThemeUpdate(index, 'prompt', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}} />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Theme Icon</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Search for an icon by name..."
+                                                    value={iconSearchQuery}
+                                                    onChange={(e) => setIconSearchQuery(e.target.value)}
+                                                    className="w-full p-2 bg-gray-800 border border-white/20 rounded-md mb-2" style={{ color: 'var(--color-text)'}}
+                                                />
+                                                {iconSearchQuery && (
+                                                    <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-2 mt-2 h-32 overflow-y-auto pr-2">
+                                                        {filteredIcons.length > 0 ? (
+                                                            filteredIcons.map(iconName => (
+                                                                <button
+                                                                    key={iconName}
+                                                                    onClick={() => {
+                                                                        handleThemeUpdate(index, 'iconName', iconName);
+                                                                        setActiveAccordion('themes'); // Go back to parent accordion
+                                                                        setIconSearchQuery('');
+                                                                    }}
+                                                                    className="p-2 rounded-md flex items-center justify-center bg-gray-800 hover:bg-gray-700 transition-all focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                                                                    aria-label={`Select ${iconName} icon`}
+                                                                >
+                                                                    {React.createElement(iconComponents[iconName], { style: { color: colors.textSecondary, width: '24px', height: '24px' } })}
+                                                                </button>
+                                                            ))
+                                                        ) : (
+                                                            <p className="col-span-full text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>No icons found.</p>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
+                            ))}
                             </div>
-                        ))}
+                        </div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg overflow-hidden transition-all duration-300">
+                        <button
+                            onClick={() => setActiveAccordion(activeAccordion === 'ui-text' ? null : 'ui-text')}
+                            className="w-full flex justify-between items-center p-4 text-left hover:bg-white/5 transition-colors"
+                        >
+                            <div className="flex items-center gap-4">
+                                <TypeIcon className="w-8 h-8 flex-shrink-0" style={{ color: 'var(--color-primary)' }}/>
+                                <span className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>Edit UI Titles & Text</span>
+                            </div>
+                            <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${activeAccordion === 'ui-text' ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-secondary)' }} />
+                        </button>
+                        <div
+                            className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === 'ui-text' ? 'max-h-[500px]' : 'max-h-0'}`}
+                        >
+                            <div className="p-4 border-t border-white/10 space-y-3 bg-black/10">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>App Title</label>
+                                    <input type="text" value={uiTexts.title} onChange={(e) => handleUiTextUpdate('title', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Footer Text</label>
+                                    <input type="text" value={uiTexts.footer} onChange={(e) => handleUiTextUpdate('footer', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Loading Title</label>
+                                    <input type="text" value={uiTexts.loadingTitle} onChange={(e) => handleUiTextUpdate('loadingTitle', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Loading Subtitle</label>
+                                    <input type="text" value={uiTexts.loadingSubtitle} onChange={(e) => handleUiTextUpdate('loadingSubtitle', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="bg-black/20 rounded-lg overflow-hidden transition-all duration-300">
+                        <button
+                            onClick={() => setActiveAccordion(activeAccordion === 'advanced-ai' ? null : 'advanced-ai')}
+                            className="w-full flex justify-between items-center p-4 text-left hover:bg-white/5 transition-colors"
+                        >
+                            <div className="flex items-center gap-4">
+                                <Sparkles className="w-8 h-8 flex-shrink-0" style={{ color: 'var(--color-primary)' }}/>
+                                <span className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>Advanced AI & Prompting</span>
+                            </div>
+                            <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${activeAccordion === 'advanced-ai' ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-secondary)' }} />
+                        </button>
+                        <div
+                            className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === 'advanced-ai' ? 'max-h-[1200px]' : 'max-h-0'}`}
+                        >
+                            <div className="p-4 border-t border-white/10 space-y-6 bg-black/10">
+                                <div>
+                                    <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--color-text)' }}>
+                                        Frame AI Creativity
+                                    </h3>
+                                    <div>
+                                        <label htmlFor="temperature" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>Temperature</label>
+                                        <p className="text-xs mb-2" style={{color: 'var(--color-text-secondary)'}}>Lower values (e.g., 0.2) are more predictable. Higher values (e.g., 0.9) encourage more creative, unexpected results.</p>
+                                        <div className="flex items-center gap-4">
+                                            <input id="temperature" type="range" min="0" max="1" step="0.1" value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value))} className="w-full" />
+                                            <span className="font-mono text-lg bg-white/10 px-3 py-1 rounded-md" style={{ color: 'var(--color-text)' }}>{temperature.toFixed(1)}</span>
+                                        </div>
+                                    </div>
+                                    <div className="mt-4">
+                                        <label htmlFor="topP" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>Top-P</label>
+                                        <p className="text-xs mb-2" style={{color: 'var(--color-text-secondary)'}}>Controls result diversity. A lower value (e.g., 0.1) restricts the AI to the most likely options. A higher value (e.g., 0.95) allows for a wider, more creative range.</p>
+                                        <div className="flex items-center gap-4">
+                                            <input id="topP" type="range" min="0" max="1" step="0.05" value={topP} onChange={(e) => setTopP(parseFloat(e.target.value))} className="w-full" />
+                                            <span className="font-mono text-lg bg-white/10 px-3 py-1 rounded-md" style={{ color: 'var(--color-text)' }}>{topP.toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                    <div className="mt-4">
+                                        <label htmlFor="topK" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>Top-K</label>
+                                        <p className="text-xs mb-2" style={{color: 'var(--color-text-secondary)'}}>Limits the AI's choices to the top 'K' most probable options. A small K (e.g., 10) makes it safer, while a large K (e.g., 100) allows for more variety.</p>
+                                        <div className="flex items-center gap-4">
+                                            <input id="topK" type="range" min="1" max="100" step="1" value={topK} onChange={(e) => setTopK(parseInt(e.target.value, 10))} className="w-full" />
+                                            <span className="font-mono text-lg bg-white/10 px-3 py-1 rounded-md" style={{ color: 'var(--color-text)' }}>{topK}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="pt-4 border-t border-white/10">
+                                    <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--color-text)' }}>
+                                        Prompt Practice (Advanced)
+                                    </h3>
+                                    <div className="space-y-3">
+                                        <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Base Frame Prompt (Read-only)</label>
+                                        <pre className="w-full p-2 bg-gray-800 border border-white/20 rounded-md text-xs whitespace-pre-wrap font-mono" style={{ color: 'var(--color-text)'}}>{DEFAULT_FRAME_GENERATION_BASE_PROMPT.trim()}</pre>
+                                        <label className="block text-sm font-medium mt-2" style={{ color: 'var(--color-text-secondary)' }}>Add Your Guardrails</label>
+                                        <textarea
+                                            value={framePromptGuardrails}
+                                            onChange={(e) => setFramePromptGuardrails(e.target.value)}
+                                            placeholder="e.g., 'Make the frame thinner, occupying only 10% of the border.' or 'The frame must be extra wide and ornate.'"
+                                            rows={3}
+                                            className="w-full p-3 bg-gray-800 border border-white/20 rounded-lg text-white placeholder-gray-500"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-             <div className="mt-4">
-                 <div className="bg-black/20 rounded-lg overflow-hidden transition-all duration-300">
-                    <button
-                        onClick={() => setActiveAccordion(activeAccordion === 'ui-text' ? null : 'ui-text')}
-                        className="w-full flex justify-between items-center p-4 text-left hover:bg-white/5 transition-colors"
-                    >
-                        <div className="flex items-center gap-4">
-                            <TypeIcon className="w-8 h-8 flex-shrink-0" style={{ color: 'var(--color-primary)' }}/>
-                            <span className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>Edit UI Titles & Text</span>
-                        </div>
-                        <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${activeAccordion === 'ui-text' ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-secondary)' }} />
+
+                <div className="mt-6 flex justify-between items-center gap-4">
+                    <button onClick={handleResetSettings} className="bg-gray-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-700 transition-all">
+                        Reset to Defaults
                     </button>
-                    <div
-                        className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === 'ui-text' ? 'max-h-[500px]' : 'max-h-0'}`}
-                    >
-                        <div className="p-4 border-t border-white/10 space-y-3 bg-black/10">
-                             <div>
-                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>App Title</label>
-                                <input type="text" value={uiTexts.title} onChange={(e) => handleUiTextUpdate('title', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Footer Text</label>
-                                <input type="text" value={uiTexts.footer} onChange={(e) => handleUiTextUpdate('footer', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Loading Title</label>
-                                <input type="text" value={uiTexts.loadingTitle} onChange={(e) => handleUiTextUpdate('loadingTitle', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Loading Subtitle</label>
-                                <input type="text" value={uiTexts.loadingSubtitle} onChange={(e) => handleUiTextUpdate('loadingSubtitle', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
-                            </div>
-                        </div>
-                    </div>
-                 </div>
-            </div>
-             <div className="mt-4">
-                 <div className="bg-black/20 rounded-lg overflow-hidden transition-all duration-300">
-                    <button
-                        onClick={() => setActiveAccordion(activeAccordion === 'advanced-ai' ? null : 'advanced-ai')}
-                        className="w-full flex justify-between items-center p-4 text-left hover:bg-white/5 transition-colors"
-                    >
-                        <div className="flex items-center gap-4">
-                            <Sparkles className="w-8 h-8 flex-shrink-0" style={{ color: 'var(--color-primary)' }}/>
-                            <span className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>Advanced AI & Prompting</span>
-                        </div>
-                        <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${activeAccordion === 'advanced-ai' ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-secondary)' }} />
+                    <button onClick={handleCloseSettings} style={{ backgroundColor: 'var(--color-secondary)' }} className="text-white font-bold py-2 px-4 rounded-lg hover:brightness-110 transition-all">
+                        Save & Close
                     </button>
-                    <div
-                        className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === 'advanced-ai' ? 'max-h-[1200px]' : 'max-h-0'}`}
-                    >
-                        <div className="p-4 border-t border-white/10 space-y-6 bg-black/10">
-                            <div>
-                                <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--color-text)' }}>
-                                    Frame AI Creativity
-                                </h3>
-                                <div>
-                                    <label htmlFor="temperature" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>Temperature</label>
-                                    <p className="text-xs mb-2" style={{color: 'var(--color-text-secondary)'}}>Lower values (e.g., 0.2) are more predictable. Higher values (e.g., 0.9) encourage more creative, unexpected results.</p>
-                                    <div className="flex items-center gap-4">
-                                        <input id="temperature" type="range" min="0" max="1" step="0.1" value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value))} className="w-full" />
-                                        <span className="font-mono text-lg bg-white/10 px-3 py-1 rounded-md" style={{ color: 'var(--color-text)' }}>{temperature.toFixed(1)}</span>
-                                    </div>
-                                </div>
-                                <div className="mt-4">
-                                    <label htmlFor="topP" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>Top-P</label>
-                                    <p className="text-xs mb-2" style={{color: 'var(--color-text-secondary)'}}>Controls result diversity. A lower value (e.g., 0.1) restricts the AI to the most likely options. A higher value (e.g., 0.95) allows for a wider, more creative range.</p>
-                                    <div className="flex items-center gap-4">
-                                        <input id="topP" type="range" min="0" max="1" step="0.05" value={topP} onChange={(e) => setTopP(parseFloat(e.target.value))} className="w-full" />
-                                        <span className="font-mono text-lg bg-white/10 px-3 py-1 rounded-md" style={{ color: 'var(--color-text)' }}>{topP.toFixed(2)}</span>
-                                    </div>
-                                </div>
-                                <div className="mt-4">
-                                    <label htmlFor="topK" className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>Top-K</label>
-                                    <p className="text-xs mb-2" style={{color: 'var(--color-text-secondary)'}}>Limits the AI's choices to the top 'K' most probable options. A small K (e.g., 10) makes it safer, while a large K (e.g., 100) allows for more variety.</p>
-                                    <div className="flex items-center gap-4">
-                                        <input id="topK" type="range" min="1" max="100" step="1" value={topK} onChange={(e) => setTopK(parseInt(e.target.value, 10))} className="w-full" />
-                                        <span className="font-mono text-lg bg-white/10 px-3 py-1 rounded-md" style={{ color: 'var(--color-text)' }}>{topK}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="pt-4 border-t border-white/10">
-                                <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--color-text)' }}>
-                                    Prompt Practice (Advanced)
-                                </h3>
-                                <div className="space-y-3">
-                                    <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Base Frame Prompt (Read-only)</label>
-                                    <pre className="w-full p-2 bg-gray-800 border border-white/20 rounded-md text-xs whitespace-pre-wrap font-mono" style={{ color: 'var(--color-text)'}}>{DEFAULT_FRAME_GENERATION_BASE_PROMPT.trim()}</pre>
-                                    <label className="block text-sm font-medium mt-2" style={{ color: 'var(--color-text-secondary)' }}>Add Your Guardrails</label>
-                                    <textarea
-                                        value={framePromptGuardrails}
-                                        onChange={(e) => setFramePromptGuardrails(e.target.value)}
-                                        placeholder="e.g., 'Make the frame thinner, occupying only 10% of the border.' or 'The frame must be extra wide and ornate.'"
-                                        rows={3}
-                                        className="w-full p-3 bg-gray-800 border border-white/20 rounded-lg text-white placeholder-gray-500"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                 </div>
+                </div>
             </div>
-            <div className="mt-6 flex justify-between items-center gap-4">
-                <button onClick={handleResetSettings} className="bg-gray-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-700 transition-all">
-                    Reset to Defaults
-                </button>
-                <button onClick={handleCloseSettings} style={{ backgroundColor: 'var(--color-secondary)' }} className="text-white font-bold py-2 px-4 rounded-lg hover:brightness-110 transition-all">
-                    Save
-                </button>
-            </div>
-        </>
+        </div>
       );
     }
 
@@ -561,7 +770,7 @@ const App: React.FC = () => {
             onClick={handleCloseSettings}
         >
             <div 
-                className="bg-gray-900 border border-white/20 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl relative"
+                className="bg-gray-900 border border-white/20 rounded-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl relative transition-all duration-500 max-w-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 <button 
@@ -748,43 +957,87 @@ const App: React.FC = () => {
         return null;
     }
   };
+  
+  const currentAppConfig = {
+      themes: editableThemes,
+      ui: uiTexts,
+      aiConfig: {
+          temperature,
+          topP,
+          topK,
+          framePromptGuardrails
+      }
+  };
 
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 font-sans transition-colors duration-1000">
-      {renderSettingsModal()}
-      <header className="w-full max-w-xl flex justify-between items-center px-6 pt-4">
-        <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--color-primary)' }}>{uiTexts.title}</h1>
-        <div className={`relative flex items-center justify-center transition-opacity duration-300 ${isSettingsOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-            <svg 
-                className="absolute w-32 h-32" 
-                viewBox="0 0 100 100" 
-                style={{ animation: 'spin-text 20s linear infinite', color: 'var(--color-primary)' }}
+    <div className="min-h-screen w-full font-sans transition-colors duration-1000">
+        <div className={`relative min-h-screen transition-all duration-500 ease-in-out ${isTutorOpen ? 'pr-[400px]' : 'pr-0'}`}>
+            <div className="flex flex-col items-center justify-center p-4">
+                {renderSettingsModal()}
+                <header className={`w-full flex justify-between items-center px-6 pt-4 transition-all duration-500 ${showCodePreview ? 'max-w-5xl' : 'max-w-xl'}`}>
+                    <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--color-primary)' }}>{uiTexts.title}</h1>
+                    <div className={`relative flex items-center justify-center transition-opacity duration-300 ${isSettingsOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+                        <svg 
+                            className="absolute w-32 h-32" 
+                            viewBox="0 0 100 100" 
+                            style={{ animation: 'spin-text 20s linear infinite', color: 'var(--color-primary)' }}
+                        >
+                            <path id="circlePath" fill="none" d="M 50, 50 m -38, 0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0"></path>
+                            <text fill="currentColor" fontSize="11" fontWeight="bold">
+                                <textPath href="#circlePath">
+                                    Customize me
+                                </textPath>
+                            </text>
+                        </svg>
+                        <button 
+                            onClick={() => {
+                            setIsSettingsOpen(true);
+                            setSettingsView('picker');
+                            }}
+                            className="p-2 rounded-full hover:bg-white/10 transition-colors relative z-10"
+                            aria-label="Open settings"
+                        >
+                            <Settings className="w-6 h-6" style={{ color: 'var(--color-text)' }} />
+                        </button>
+                    </div>
+                </header>
+                <main className={`w-full bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-6 md:p-8 mt-16 transition-all duration-500 ${showCodePreview ? 'max-w-5xl' : 'max-w-xl'}`}>
+                    <div className="flex gap-8">
+                        <div className={`transition-all duration-300 ${showCodePreview ? 'w-3/5' : 'w-full'}`}>
+                            {renderContent()}
+                        </div>
+                        {showCodePreview && (
+                            <div className="w-2/5">
+                                {renderConfigurationPreview()}
+                            </div>
+                        )}
+                    </div>
+                    <div className="mt-6 pt-6 border-t border-white/10 text-center">
+                        <button
+                            onClick={() => setShowCodePreview(!showCodePreview)}
+                            className="flex items-center gap-2 text-sm p-2 rounded-md hover:bg-white/10 transition-colors mx-auto"
+                            style={{ color: 'var(--color-text-secondary)' }}
+                            aria-label={showCodePreview ? 'Hide code preview' : 'Show code preview'}
+                        >
+                            <Code className="w-4 h-4" />
+                            {showCodePreview ? 'Hide Live Code' : 'Show Live Code'}
+                        </button>
+                    </div>
+                </main>
+                <footer className="text-center mt-6 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                    <p>{uiTexts.footer}</p>
+                </footer>
+            </div>
+             <button
+                onClick={() => setIsTutorOpen(true)}
+                className="fixed bottom-6 left-6 z-40 bg-gray-800/80 backdrop-blur-md border border-white/10 text-white px-4 py-2 rounded-full shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105"
+                style={{ color: colors.text }}
+                aria-label="Ask Professor Frame"
             >
-                <path id="circlePath" fill="none" d="M 50, 50 m -38, 0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0"></path>
-                <text fill="currentColor" fontSize="11" fontWeight="bold">
-                    <textPath href="#circlePath">
-                        Customize me
-                    </textPath>
-                </text>
-            </svg>
-            <button 
-                onClick={() => {
-                  setIsSettingsOpen(true);
-                  setSettingsView('picker');
-                }}
-                className="p-2 rounded-full hover:bg-white/10 transition-colors relative z-10"
-                aria-label="Open settings"
-            >
-                <Settings className="w-6 h-6" style={{ color: 'var(--color-text)' }} />
+                <span className="text-lg">👋</span> Ask Professor Frame
             </button>
         </div>
-      </header>
-      <main className="w-full max-w-xl bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-6 md:p-8 mt-16">
-        {renderContent()}
-      </main>
-      <footer className="text-center mt-6 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-        <p>{uiTexts.footer}</p>
-      </footer>
+      <GeminiTutor appConfig={currentAppConfig} colors={colors} isOpen={isTutorOpen} onToggle={() => setIsTutorOpen(!isTutorOpen)} />
     </div>
   );
 };
