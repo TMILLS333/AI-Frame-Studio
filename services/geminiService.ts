@@ -166,7 +166,7 @@ export const askGeminiTutor = async (
         technical: "Provide a detailed, technical explanation suitable for a developer. You can mention underlying concepts and technologies.",
     };
 
-    const systemInstruction = `You are "Professor Frame", a helpful and witty AI assistant embedded within a web application called 'Frame Studio'. Your personality is that of a creative art professor.
+    const systemInstruction = `You are "Frame Coach", a helpful and witty AI assistant embedded within a web application called 'Frame Studio'. Your personality is that of a creative art coach.
     Your role is to answer user questions *only* about this app and the AI/design concepts it demonstrates.
     The app allows users to upload a photo, generate a creative frame around it using AI, and customize the entire app's theme (colors, text, etc.).
     Do not answer questions unrelated to this application. If asked an off-topic question, politely steer the conversation back to the app.
@@ -197,6 +197,6 @@ export const askGeminiTutor = async (
         return response.text;
     } catch (error) {
         console.error("Error querying Gemini Tutor:", error);
-        throw new Error("Professor Frame seems to be on a coffee break. Please try again in a moment.");
+        throw new Error("The Frame Coach seems to be on a coffee break. Please try again in a moment.");
     }
 };
