@@ -1,41 +1,35 @@
+
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import Cropper from 'react-easy-crop';
 import type { Point } from 'react-easy-crop';
 import { Step, Theme, Area, Colors, TutorTone, TutorMessage } from './types';
 import { getCroppedImg, addMarginToImage } from './utils/imageUtils';
-import { generateFrame, generateAppCustomization, DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION, DEFAULT_FRAME_GENERATION_BASE_PROMPT, askGeminiTutor } from './services/geminiService';
+import { generateFrame, generateAppCustomization, DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION, askGeminiTutor, CRITICAL_PRESERVE_PHOTO_RULE, EDITABLE_DEFAULT_FRAME_GENERATION_BASE_PROMPT } from './services/geminiService';
 // FIX: Renamed `Type` to `TypeIcon` to prevent naming conflicts with `@google/genai`'s `Type` enum.
 import {
     UploadCloud, Sparkles, ArrowLeft, Download, RotateCw, Settings, ChevronDown, Type as TypeIcon, Wand2, Wrench,
-    Anchor, Award, Bike, BookOpen, Briefcase, Brush, Camera, Castle, Cat, Cherry, Cloud, Code, Compass,
+    Anchor, Award, Bike, BookOpen, Briefcase, Brush, Camera, Castle, Cat, Cherry, Cloud, Compass,
     Cpu, Crown, Diamond, Feather, Flag, Flame, Flower, Gamepad2, Gem, Ghost, Gift, Globe, Grape, Heart,
     KeyRound, Leaf, Lightbulb, Map, Moon, Mountain, Music, Palette, Plane, Puzzle, Rocket, Shield, Ship,
-    Star, Sun, Swords, TreePine, Trophy, Umbrella, Watch, Wind, Medal, Info, X, Copy, Bot, Send, Paperclip
+    Star, Sun, Swords, TreePine, Trophy, Umbrella, Watch, Wind, Medal, Info, X, Bot, Send, Paperclip
 } from 'lucide-react';
 
 const DEFAULT_THEMES: Theme[] = [
   {
-    id: 'starlight-studio',
-    name: 'Starlight Studio',
-    description: 'A celestial theme with glowing neon and deep space vibes.',
-    iconName: 'Sparkles',
-    prompt: `Create a frame with a dark, deep space background, filled with swirling nebulae in shades of dark blue and purple. Add glowing, futuristic neon accents in vibrant yellow and magenta, forming abstract geometric patterns or light trails around the photo. The overall feeling should be futuristic, cosmic, and vibrant.`
+    id: 'floral-motif',
+    name: 'Floral Motif',
+    description: 'A lush, realistic frame of densely packed flowers and leaves.',
+    iconName: 'Flower',
+    prompt: `Create a dense, realistic, and lush frame composed of a variety of blooming flowers (like peonies, roses, and hydrangeas) and rich green leaves. The flowers should be tightly packed, creating a full, textured border. Use a soft, natural color palette with pinks, creams, and deep greens. The lighting should be soft and diffused, as if in a garden on a slightly overcast day. The style should be photorealistic and highly detailed. Ensure elements subtly extend inward, partially overlapping the very edges of the central image.`
   },
 ];
 
 const iconComponents: { [key: string]: React.FC<any> } = {
-    Anchor, Award, Bike, BookOpen, Briefcase, Brush, Camera, Castle, Cat, Cherry, Cloud, Code, Compass,
+    Anchor, Award, Bike, BookOpen, Briefcase, Brush, Camera, Castle, Cat, Cherry, Cloud, Compass,
     Cpu, Crown, Diamond, Feather, Flag, Flame, Flower, Gamepad2, Gem, Ghost, Gift, Globe, Grape, Heart,
     KeyRound, Leaf, Lightbulb, Map, Moon, Mountain, Music, Palette, Plane, Puzzle, Rocket, Shield, Ship,
     Sparkles, Star, Sun, Swords, TreePine, Trophy, Umbrella, Wand2, Watch, Wind, Medal, Wrench, Info
-};
-const availableIcons = Object.keys(iconComponents).sort();
-
-const DEFAULT_UI_TEXTS = {
-    title: 'AI Frame Studio',
-    footer: 'Crafted with Gemini. Your vision, framed.',
-    loadingTitle: 'Building your frame...',
-    loadingSubtitle: 'The AI is painting your vision...',
 };
 
 const DEFAULT_COLORS: Colors = {
@@ -47,23 +41,10 @@ const DEFAULT_COLORS: Colors = {
     textSecondary: '#D1D5DB',
 };
 
-// --- Helper function for syntax highlighting ---
-const syntaxHighlight = (jsonString: string) => {
-  if (!jsonString) return '';
-  let json = jsonString.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  // This regex matches any quoted string, and uses a replacer function to check if it's a key (followed by a colon).
-  return json.replace(/"((?:\\.|[^"\\])*)"(\s*:)?/g, (match, stringContent, isKey) => {
-      const cls = isKey ? 'json-key' : 'json-string';
-      const value = `"${stringContent}"`;
-      // If it's a key, we add the colon back, outside the span, to prevent it from being part of the key's content.
-      return `<span class="${cls}">${value}</span>` + (isKey ? ':' : '');
-    })
-    .replace(/\b(true|false)\b/g, '<span class="json-boolean">$1</span>')
-    // A more specific regex for numbers to avoid matching them inside strings.
-    .replace(/(:\s*|\s*,\s*|\s*\[\s*)(\d+\.?\d*)\b/g, (match, prefix, number) => `${prefix}<span class="json-number">${number}</span>`)
-    .replace(/\b(null)\b/g, '<span class="json-null">$1</span>');
-};
+interface Toast {
+    id: number;
+    message: string;
+}
 
 const GeminiTutor: React.FC<{ appConfig: object, colors: Colors, isOpen: boolean, onToggle: () => void }> = ({ appConfig, colors, isOpen, onToggle }) => {
     const [messages, setMessages] = useState<TutorMessage[]>([]);
@@ -80,7 +61,7 @@ const GeminiTutor: React.FC<{ appConfig: object, colors: Colors, isOpen: boolean
 
     useEffect(() => {
         if (isOpen && messages.length === 0) {
-            setMessages([{ sender: 'ai', text: "Greetings! I'm the Frame Coach, your guide to this studio. Ask me anything about the app, its features, or the AI concepts at play. You can even upload an image!" }]);
+            setMessages([{ sender: 'ai', text: "Greetings! I'm the Frame Coach. Ask me anything about the app's settings, or let's work together to brainstorm and refine the perfect prompt for a lush, beautiful frame!" }]);
         }
     }, [isOpen, messages.length]);
 
@@ -200,8 +181,6 @@ interface SettingsPanelProps {
     colors: Colors;
     editableThemes: Theme[];
     setEditableThemes: (themes: Theme[]) => void;
-    uiTexts: typeof DEFAULT_UI_TEXTS;
-    setUiTexts: (texts: any) => void;
     setColors: (colors: Colors) => void;
     temperature: number;
     setTemperature: (temp: number) => void;
@@ -211,7 +190,10 @@ interface SettingsPanelProps {
     setTopK: (k: number) => void;
     framePromptGuardrails: string;
     setFramePromptGuardrails: (g: string) => void;
+    editableBasePrompt: string;
+    setEditableBasePrompt: (p: string) => void;
     handleResetSettings: () => void;
+    onAiThemeGenerated: () => void;
 }
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({
@@ -220,8 +202,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     colors,
     editableThemes,
     setEditableThemes,
-    uiTexts,
-    setUiTexts,
     setColors,
     temperature,
     setTemperature,
@@ -231,21 +211,20 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setTopK,
     framePromptGuardrails,
     setFramePromptGuardrails,
-    handleResetSettings
+    editableBasePrompt,
+    setEditableBasePrompt,
+    handleResetSettings,
+    onAiThemeGenerated
 }) => {
-    const [settingsView, setSettingsView] = useState<'picker' | 'ai' | 'manual' | 'ai_success'>('picker');
+    const [settingsView, setSettingsView] = useState<'picker' | 'ai' | 'manual'>('picker');
     const [activeAccordion, setActiveAccordion] = useState<string | null>(null);
     const [aiCustomizationPrompt, setAiCustomizationPrompt] = useState<string>('');
     const [isCustomizing, setIsCustomizing] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
-    const [iconSearchQuery, setIconSearchQuery] = useState('');
 
     useEffect(() => {
         if (isOpen) {
-            // Reset to picker view when opened, unless coming from AI success
-            if (settingsView !== 'ai_success') {
-                setSettingsView('picker');
-            }
+            setSettingsView('picker');
         }
     }, [isOpen]);
 
@@ -254,13 +233,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         setIsCustomizing(true);
         setError(null);
         try {
-            const result = await generateAppCustomization(aiCustomizationPrompt);
-            if (result.themes && result.ui && result.colors) {
-                setEditableThemes(result.themes);
-                setUiTexts(result.ui);
-                setColors(result.colors);
+            const newTheme = await generateAppCustomization(aiCustomizationPrompt);
+            if (newTheme && newTheme.id) {
+                setEditableThemes([newTheme]);
                 setAiCustomizationPrompt('');
-                setSettingsView('ai_success');
+                onAiThemeGenerated();
             } else {
                 throw new Error("Invalid response structure from AI.");
             }
@@ -275,10 +252,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         const updatedThemes = [...editableThemes];
         updatedThemes[index] = { ...updatedThemes[index], [field]: value };
         setEditableThemes(updatedThemes);
-    };
-
-    const handleUiTextUpdate = (field: keyof typeof uiTexts, value: string) => {
-        setUiTexts((prev: any) => ({...prev, [field]: value}));
     };
 
     const renderPickerView = () => (
@@ -306,22 +279,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         </>
     );
 
-    const renderAiSuccessView = () => (
-        <div className="text-center">
-            <Sparkles className="w-16 h-16 mx-auto mb-4" style={{ color: 'var(--color-primary)' }} />
-            <h2 className="text-2xl font-bold mb-2" style={{ color: 'var(--color-primary)' }}>Style Generated!</h2>
-            <p className="text-lg mb-6" style={{ color: 'var(--color-text-secondary)' }}>"Now live with your new style... give it a try!"</p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <button onClick={() => setSettingsView('manual')} className="bg-gray-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-gray-700 transition-all">
-                    See the Edits
-                </button>
-                <button onClick={onClose} style={{ backgroundColor: 'var(--color-secondary)' }} className="text-white font-bold py-2 px-6 rounded-lg hover:brightness-110 transition-all">
-                    Close & Explore
-                </button>
-            </div>
-        </div>
-    );
-
     const renderAiView = () => (
         <>
             <button onClick={() => setSettingsView('picker')} className="absolute top-4 left-4 p-2 rounded-full hover:bg-white/10 transition-colors z-10">
@@ -329,11 +286,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </button>
             <h2 className="text-xl font-bold mb-4 text-center" style={{ color: 'var(--color-primary)' }}>Customize with AI</h2>
             <div className="bg-black/20 p-4 rounded-lg space-y-4">
-                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Describe a new style for the app. The AI will generate new themes and UI text to match.</p>
+                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Describe a new frame style. The AI will generate a new theme for you to use.</p>
                 <textarea
                     value={aiCustomizationPrompt}
                     onChange={(e) => setAiCustomizationPrompt(e.target.value)}
-                    placeholder="e.g., 'a serene Japanese zen garden theme' or 'a vibrant 80s synthwave style'"
+                    placeholder="e.g., 'a frame made of vintage film strips' or 'a vibrant watercolor splash effect'"
                     rows={3}
                     className="w-full p-3 bg-gray-800 border border-white/20 rounded-lg text-white placeholder-gray-500"
                     disabled={isCustomizing}
@@ -362,11 +319,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     );
     
     const renderManualView = () => {
-      const filteredIcons = iconSearchQuery 
-        ? availableIcons.filter(iconName =>
-            iconName.toLowerCase().includes(iconSearchQuery.toLowerCase())
-          )
-        : [];
+      const finalPromptPreview = `${CRITICAL_PRESERVE_PHOTO_RULE.trim()}\n\n${editableBasePrompt.trim()} ${editableThemes[0]?.prompt || '[Theme prompt will appear here]'}\n\n${framePromptGuardrails.trim() ? `ADDITIONAL USER GUARDRAILS:\n${framePromptGuardrails.trim()}` : ''}`;
 
       return (
         <div>
@@ -406,85 +359,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                     return (
                                         <div className="space-y-4">
                                             <div>
-                                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Theme Name</label>
-                                                <input type="text" value={theme.name} onChange={(e) => handleThemeUpdate(index, 'name', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}} />
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Description</label>
-                                                <input type="text" value={theme.description} onChange={(e) => handleThemeUpdate(index, 'description', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}} />
-                                            </div>
-                                            <div>
                                                 <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>AI Prompt</label>
                                                 <textarea rows={4} value={theme.prompt} onChange={(e) => handleThemeUpdate(index, 'prompt', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}} />
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Theme Icon: {theme.iconName}</label>
-                                                <input
-                                                    type="text"
-                                                    placeholder="Search for an icon by name..."
-                                                    value={iconSearchQuery}
-                                                    onChange={(e) => setIconSearchQuery(e.target.value)}
-                                                    className="w-full p-2 bg-gray-800 border border-white/20 rounded-md mb-2" style={{ color: 'var(--color-text)'}}
-                                                />
-                                                {iconSearchQuery && (
-                                                    <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-2 mt-2 h-32 overflow-y-auto pr-2">
-                                                        {filteredIcons.length > 0 ? (
-                                                            filteredIcons.map(iconName => (
-                                                                <button
-                                                                    key={iconName}
-                                                                    onClick={() => {
-                                                                        handleThemeUpdate(index, 'iconName', iconName);
-                                                                        setIconSearchQuery('');
-                                                                    }}
-                                                                    className="p-2 rounded-md flex items-center justify-center bg-gray-800 hover:bg-gray-700 transition-all focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                                                                    aria-label={`Select ${iconName} icon`}
-                                                                >
-                                                                    {React.createElement(iconComponents[iconName], { style: { color: colors.textSecondary, width: '24px', height: '24px' } })}
-                                                                </button>
-                                                            ))
-                                                        ) : (
-                                                            <p className="col-span-full text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>No icons found.</p>
-                                                        )}
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
                                     );
                                 })()}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="bg-black/20 rounded-lg overflow-hidden transition-all duration-300">
-                        <button
-                            onClick={() => setActiveAccordion(activeAccordion === 'ui-text' ? null : 'ui-text')}
-                            className="w-full flex justify-between items-center p-4 text-left hover:bg-white/5 transition-colors"
-                        >
-                            <div className="flex items-center gap-4">
-                                <TypeIcon className="w-8 h-8 flex-shrink-0" style={{ color: 'var(--color-primary)' }}/>
-                                <span className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>Edit UI Titles & Text</span>
-                            </div>
-                            <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${activeAccordion === 'ui-text' ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-secondary)' }} />
-                        </button>
-                        <div
-                            className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === 'ui-text' ? 'max-h-[500px]' : 'max-h-0'}`}
-                        >
-                            <div className="p-4 border-t border-white/10 space-y-3 bg-black/10">
-                                <div>
-                                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>App Title</label>
-                                    <input type="text" value={uiTexts.title} onChange={(e) => handleUiTextUpdate('title', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Footer Text</label>
-                                    <input type="text" value={uiTexts.footer} onChange={(e) => handleUiTextUpdate('footer', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Loading Title</label>
-                                    <input type="text" value={uiTexts.loadingTitle} onChange={(e) => handleUiTextUpdate('loadingTitle', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Loading Subtitle</label>
-                                    <input type="text" value={uiTexts.loadingSubtitle} onChange={(e) => handleUiTextUpdate('loadingSubtitle', e.target.value)} className="w-full p-2 bg-gray-800 border border-white/20 rounded-md" style={{ color: 'var(--color-text)'}}/>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -500,7 +380,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${activeAccordion === 'advanced-ai' ? 'rotate-180' : ''}`} style={{ color: 'var(--color-text-secondary)' }} />
                         </button>
                         <div
-                            className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === 'advanced-ai' ? 'max-h-[1200px]' : 'max-h-0'}`}
+                            className={`overflow-hidden transition-all duration-500 ease-in-out ${activeAccordion === 'advanced-ai' ? 'max-h-[2000px]' : 'max-h-0'}`}
                         >
                             <div className="p-4 border-t border-white/10 space-y-6 bg-black/10">
                                 <div>
@@ -536,17 +416,39 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                     <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--color-text)' }}>
                                         Prompt Practice (Advanced)
                                     </h3>
-                                    <div className="space-y-3">
-                                        <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Base Frame Prompt (Read-only)</label>
-                                        <pre className="w-full p-2 bg-gray-800 border border-white/20 rounded-md text-xs whitespace-pre-wrap font-mono" style={{ color: 'var(--color-text)'}}>{DEFAULT_FRAME_GENERATION_BASE_PROMPT.trim()}</pre>
-                                        <label className="block text-sm font-medium mt-2" style={{ color: 'var(--color-text-secondary)' }}>Add Your Guardrails</label>
-                                        <textarea
-                                            value={framePromptGuardrails}
-                                            onChange={(e) => setFramePromptGuardrails(e.target.value)}
-                                            placeholder="e.g., 'Make the frame thinner, occupying only 10% of the border.' or 'The frame must be extra wide and ornate.'"
-                                            rows={3}
-                                            className="w-full p-3 bg-gray-800 border border-white/20 rounded-lg text-white placeholder-gray-500"
-                                        />
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Base Prompt Rule (Read-only)</label>
+                                            <pre className="w-full p-2 bg-gray-900 border border-white/20 rounded-md text-xs whitespace-pre-wrap font-mono" style={{ color: 'var(--color-text-secondary)'}}>{CRITICAL_PRESERVE_PHOTO_RULE.trim()}</pre>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Base Prompt Body (Editable)</label>
+                                            <textarea
+                                                value={editableBasePrompt}
+                                                onChange={(e) => setEditableBasePrompt(e.target.value)}
+                                                rows={12}
+                                                className="w-full p-3 bg-gray-800 border border-white/20 rounded-lg text-white placeholder-gray-500 font-mono text-xs"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Add Your Guardrails</label>
+                                            <textarea
+                                                value={framePromptGuardrails}
+                                                onChange={(e) => setFramePromptGuardrails(e.target.value)}
+                                                placeholder="e.g., 'Make the frame thinner, occupying only 10% of the border.' or 'The frame must be extra wide and ornate.'"
+                                                rows={3}
+                                                className="w-full p-3 bg-gray-800 border border-white/20 rounded-lg text-white placeholder-gray-500"
+                                            />
+                                        </div>
+                                        <div className="pt-4 mt-4 border-t border-white/10">
+                                            <h4 className="text-md font-bold mb-2" style={{ color: 'var(--color-text)' }}>
+                                                Final Prompt Preview
+                                            </h4>
+                                            <p className="text-xs mb-2" style={{color: 'var(--color-text-secondary)'}}>This is the complete prompt that will be sent to the AI, combining the rule, base, theme, and your guardrails.</p>
+                                            <pre className="w-full p-2 bg-gray-900 border border-white/20 rounded-md text-xs whitespace-pre-wrap font-mono" style={{ color: 'var(--color-text-secondary)'}}>
+                                                {finalPromptPreview.trim()}
+                                            </pre>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -575,7 +477,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                         switch (settingsView) {
                             case 'picker': return renderPickerView();
                             case 'ai': return renderAiView();
-                            case 'ai_success': return renderAiSuccessView();
                             case 'manual': return renderManualView();
                         }
                     })()}
@@ -602,7 +503,6 @@ const App: React.FC = () => {
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [croppedImage, setCroppedImage] = useState<string | null>(null);
   const [selectedTheme, setSelectedTheme] = useState<Theme | null>(null);
-  const [customPrompt, setCustomPrompt] = useState<string>('');
   const [finalImage, setFinalImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -610,18 +510,25 @@ const App: React.FC = () => {
 
   // App-wide configuration state
   const [editableThemes, setEditableThemes] = useState<Theme[]>(DEFAULT_THEMES);
-  const [temperature, setTemperature] = useState<number>(0.8);
+  const [temperature, setTemperature] = useState<number>(0.4);
   const [topP, setTopP] = useState<number>(0.8);
   const [topK, setTopK] = useState<number>(40);
-  const [uiTexts, setUiTexts] = useState(DEFAULT_UI_TEXTS);
   const [colors, setColors] = useState<Colors>(DEFAULT_COLORS);
   const [framePromptGuardrails, setFramePromptGuardrails] = useState<string>('');
+  const [editableBasePrompt, setEditableBasePrompt] = useState<string>(EDITABLE_DEFAULT_FRAME_GENERATION_BASE_PROMPT);
   
   // UI State for panels
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
-  const [showCodePreview, setShowCodePreview] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
   const [isTutorOpen, setIsTutorOpen] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const addToast = (message: string) => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message }]);
+    setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000); // Toast disappears after 3 seconds
+  };
 
   useEffect(() => {
     // Dynamic Theming Effect
@@ -646,11 +553,15 @@ const App: React.FC = () => {
             transform: rotate(360deg);
         }
       }
-      .json-key { color: ${colors.primary}; }
-      .json-string { color: #A5B4FC; } /* A soft indigo for strings */
-      .json-number { color: ${colors.secondary}; }
-      .json-boolean { color: ${colors.secondary}; }
-      .json-null { color: #9CA3AF; } /* Gray */
+      @keyframes toast-in-out {
+        0% { transform: translateY(100%); opacity: 0; }
+        15% { transform: translateY(0); opacity: 1; }
+        85% { transform: translateY(0); opacity: 1; }
+        100% { transform: translateY(100%); opacity: 0; }
+      }
+      .toast-notification {
+        animation: toast-in-out 3s ease-in-out forwards;
+      }
     `;
     
     body.style.background = `linear-gradient(-45deg, ${colors.backgroundStart}, ${colors.backgroundEnd}, ${colors.backgroundStart}, ${colors.backgroundEnd})`;
@@ -709,7 +620,7 @@ const App: React.FC = () => {
       if (!marginedImage) {
           throw new Error("Could not prepare image for framing.");
       }
-      const generatedImg = await generateFrame(marginedImage, theme, customPrompt, temperature, topP, topK, framePromptGuardrails);
+      const generatedImg = await generateFrame(marginedImage, theme, editableBasePrompt, temperature, topP, topK, framePromptGuardrails);
       setFinalImage(generatedImg);
       setStep('result');
     } catch (e: any) {
@@ -730,7 +641,6 @@ const App: React.FC = () => {
     setError(null);
     setCrop({ x: 0, y: 0 });
     setZoom(1);
-    setCustomPrompt('');
     if(fileInputRef.current) {
         fileInputRef.current.value = "";
     }
@@ -738,74 +648,42 @@ const App: React.FC = () => {
   
   const handleResetSettings = () => {
       setEditableThemes(DEFAULT_THEMES);
-      setUiTexts(DEFAULT_UI_TEXTS);
       setColors(DEFAULT_COLORS);
-      setTemperature(0.8);
+      setTemperature(0.4);
       setTopP(0.8);
       setTopK(40);
       setFramePromptGuardrails('');
+      setEditableBasePrompt(EDITABLE_DEFAULT_FRAME_GENERATION_BASE_PROMPT);
   };
 
-    const renderConfigurationPreview = () => {
-        const currentConfig = {
-            themes: editableThemes,
-            ui: uiTexts,
-            aiConfig: {
-                temperature,
-                topP,
-                topK,
-                framePromptGuardrails
-            }
-        };
-        const configString = JSON.stringify(currentConfig, null, 2);
+  const handleRestartWithImage = () => {
+    setStep('upload');
+    setCroppedImage(null);
+    setSelectedTheme(null);
+    setFinalImage(null);
+    setIsLoading(false);
+    setError(null);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+  };
 
-        const handleCopy = () => {
-            navigator.clipboard.writeText(configString).then(() => {
-                setCopySuccess(true);
-                setTimeout(() => setCopySuccess(false), 2000);
-            });
-        };
+  const handleSettingsClose = () => {
+    setIsSettingsPanelOpen(false);
+    if (uploadedImage) {
+      handleRestartWithImage();
+    }
+  };
 
-        return (
-            <div className="sticky top-0 pt-1 h-full">
-                <div className="bg-black/20 rounded-lg overflow-hidden h-full flex flex-col">
-                    <div className="flex justify-between items-center p-4 border-b border-white/10 flex-shrink-0">
-                        <div className="flex items-center gap-3">
-                            <Code className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--color-primary)' }}/>
-                            <h3 className="font-bold text-base" style={{ color: 'var(--color-text)' }}>Live Configuration</h3>
-                        </div>
-                        <button
-                            onClick={handleCopy}
-                            className="p-2 rounded-md hover:bg-white/20 transition-colors text-xs flex items-center gap-1.5"
-                            style={{ color: 'var(--color-text-secondary)'}}
-                        >
-                            {copySuccess ? (
-                                <>
-                                    <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--color-primary)'}} /> Copied!
-                                </>
-                            ) : (
-                                <>
-                                    <Copy className="w-3.5 h-3.5" /> Copy Code
-                                </>
-                            )}
-                        </button>
-                    </div>
-                    <div className="p-4 bg-black/10 flex-grow overflow-y-auto">
-                        <pre className="text-xs font-mono w-full h-full pr-2">
-                            <code dangerouslySetInnerHTML={{ __html: syntaxHighlight(configString) }} />
-                        </pre>
-                    </div>
-                </div>
-            </div>
-        );
-    };
+  const handleAiThemeGenerated = () => {
+    addToast("New theme ready!");
+    handleSettingsClose();
+  };
 
   const renderContent = () => {
     switch (step) {
       case 'upload':
         return (
           <div className="w-full">
-            <h2 className="text-2xl font-bold text-center" style={{ color: 'var(--color-primary)' }}>Welcome to {uiTexts.title}</h2>
             <p className="text-center mb-6" style={{ color: 'var(--color-text-secondary)' }}>Upload a photo to see how it works.</p>
             {!uploadedImage ? (
                 <div 
@@ -864,40 +742,40 @@ const App: React.FC = () => {
         );
       
       case 'theme':
+        const theme = editableThemes[0];
+        if (!theme) {
+            // Fallback in case themes are empty for some reason
+            setError("No theme is available. Please reset settings.");
+            setStep('upload');
+            return null;
+        }
         return (
             <div className="w-full">
-                <div className="flex items-center mb-6">
+                <div className="flex items-center justify-between mb-6">
                     <button onClick={() => setStep('upload')} className="p-2 rounded-full hover:bg-white/10">
                         <ArrowLeft className="w-6 h-6" style={{ color: 'var(--color-text)' }}/>
                     </button>
-                    <h2 className="text-2xl font-bold mx-auto" style={{ color: 'var(--color-primary)' }}>Choose a Theme</h2>
+                    <h2 className="text-2xl font-bold" style={{ color: 'var(--color-primary)' }}>My Theme</h2>
+                    <div className="w-10 h-10" /> {/* Spacer for centering */}
                 </div>
                 <div className="flex justify-center">
-                    {editableThemes.map((theme) => (
-                        <div key={theme.id} onClick={() => handleThemeSelect(theme)} className="cursor-pointer group bg-black/20 rounded-lg p-4 text-center transition-colors hover:bg-white/10 w-full max-w-xs">
-                            <div className="w-full h-32 flex items-center justify-center rounded-lg bg-black/20 mb-3">
-                                {React.createElement(iconComponents[theme.iconName] || Sparkles, { className: 'w-16 h-16 transform group-hover:scale-110 transition-transform duration-300', style: { color: 'var(--color-primary)' } })}
-                            </div>
-                            <h3 className="font-bold mt-2" style={{ color: 'var(--color-text)' }}>{theme.name}</h3>
-                            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{theme.description}</p>
+                    <div key={theme.id} className="bg-black/20 rounded-lg p-4 text-center w-full max-w-xs">
+                        <div className="w-full h-32 flex items-center justify-center rounded-lg bg-black/20 mb-3">
+                            {React.createElement(iconComponents[theme.iconName] || Sparkles, { className: 'w-16 h-16', style: { color: 'var(--color-primary)' } })}
                         </div>
-                    ))}
+                        <h3 className="font-bold mt-2" style={{ color: 'var(--color-text)' }}>{theme.name}</h3>
+                        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{theme.description}</p>
+                    </div>
                 </div>
-
-                <div className="mt-8">
-                    <label htmlFor="custom-prompt" className="block text-lg font-bold mb-2" style={{ color: 'var(--color-primary)' }}>
-                        Add Creative Details <span className="font-normal text-base" style={{ color: 'var(--color-text-secondary)' }}>(Optional)</span>
-                    </label>
-                    <p className="text-sm mb-3" style={{ color: 'var(--color-text-secondary)' }}>Add your own touch to the theme. The AI will try to incorporate it into the frame.</p>
-                    <textarea
-                        id="custom-prompt"
-                        value={customPrompt}
-                        onChange={(e) => setCustomPrompt(e.target.value)}
-                        placeholder="e.g., 'include some hummingbirds' or 'make it look like it's carved from wood'"
-                        rows={3}
-                        className="w-full p-3 bg-black/20 border border-white/20 rounded-lg focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 transition-colors text-white placeholder-gray-500"
-                    />
-                </div>
+                
+                <button
+                    onClick={() => handleThemeSelect(theme)}
+                    style={{ backgroundColor: 'var(--color-secondary)' }}
+                    className="w-full mt-6 text-white font-bold py-3 px-4 rounded-lg hover:brightness-110 transition-all duration-300 flex items-center justify-center gap-2"
+                >
+                    Continue
+                    <Sparkles className="w-5 h-5" />
+                </button>
 
                 {error && <p className="text-red-400 text-center mt-4">{error}</p>}
             </div>
@@ -907,8 +785,8 @@ const App: React.FC = () => {
         return (
           <div className="flex flex-col items-center justify-center h-64">
             <div className="animate-spin rounded-full h-16 w-16 border-b-2" style={{ borderColor: 'var(--color-primary)' }}></div>
-            <p className="mt-4 text-lg" style={{ color: 'var(--color-text)' }}>{uiTexts.loadingTitle}</p>
-            <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>{uiTexts.loadingSubtitle}</p>
+            <p className="mt-4 text-lg" style={{ color: 'var(--color-text)' }}>Building your frame...</p>
+            <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>The AI is painting your vision...</p>
           </div>
         );
 
@@ -934,12 +812,11 @@ const App: React.FC = () => {
                 <RotateCw className="w-5 h-5" />
                 Create Another
               </button>
-              <p className="text-xs text-center pt-2" style={{ color: 'var(--color-text-secondary)' }}>On iOS? Long-press the image and select "Save to Photos".</p>
             </div>
             <div className="w-full mt-6 p-4 bg-black/20 rounded-lg text-center border border-white/10">
-                <p className="font-bold" style={{ color: 'var(--color-text)' }}>Enjoy your creation! ✨</p>
+                <p className="font-bold" style={{ color: 'var(--color-text)' }}>Ready to edit ✨</p>
                 <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Want to change the app's style? Try the practice mode!
+                    Change the app's style or edit manually. Try the practice mode!
                 </p>
                 <button 
                     onClick={() => {
@@ -961,7 +838,6 @@ const App: React.FC = () => {
   
   const currentAppConfig = {
       themes: editableThemes,
-      ui: uiTexts,
       aiConfig: {
           temperature,
           topP,
@@ -974,12 +850,10 @@ const App: React.FC = () => {
     <div className="min-h-screen w-full font-sans transition-colors duration-1000">
         <SettingsPanel
             isOpen={isSettingsPanelOpen}
-            onClose={() => setIsSettingsPanelOpen(false)}
+            onClose={handleSettingsClose}
             colors={colors}
             editableThemes={editableThemes}
             setEditableThemes={setEditableThemes}
-            uiTexts={uiTexts}
-            setUiTexts={setUiTexts}
             setColors={setColors}
             temperature={temperature}
             setTemperature={setTemperature}
@@ -989,19 +863,29 @@ const App: React.FC = () => {
             setTopK={setTopK}
             framePromptGuardrails={framePromptGuardrails}
             setFramePromptGuardrails={setFramePromptGuardrails}
+            editableBasePrompt={editableBasePrompt}
+            setEditableBasePrompt={setEditableBasePrompt}
             handleResetSettings={handleResetSettings}
+            onAiThemeGenerated={handleAiThemeGenerated}
         />
+        <div className="fixed bottom-4 right-4 z-[100] space-y-2">
+            {toasts.map(toast => (
+                <div key={toast.id} className="toast-notification bg-green-500 text-white font-bold py-2 px-4 rounded-lg shadow-lg">
+                    {toast.message}
+                </div>
+            ))}
+        </div>
         <div className={`relative min-h-screen transition-all duration-500 ease-in-out ${isTutorOpen ? 'pr-[400px]' : isSettingsPanelOpen ? 'pr-[500px]' : 'pr-0'}`}>
-            <div className="flex flex-col items-center justify-center p-4">
-                <header className={`w-full flex justify-between items-center px-6 pt-4 transition-all duration-500 ${showCodePreview ? 'max-w-5xl' : 'max-w-xl'}`}>
-                    <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--color-primary)' }}>{uiTexts.title}</h1>
+            <div className="flex flex-col items-center p-4 pt-20">
+                <header className="w-full flex justify-between items-center px-6 pt-4 transition-all duration-500 max-w-xl">
+                    <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--color-primary)' }}>AI Frame Studio</h1>
                     <div className={`relative flex items-center justify-center transition-opacity duration-300 ${isSettingsPanelOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
                         <svg 
                             className="absolute w-32 h-32" 
                             viewBox="0 0 100 100" 
                             style={{ animation: 'spin-text 20s linear infinite', color: 'var(--color-primary)' }}
                         >
-                            <path id="circlePath" fill="none" d="M 50, 50 m -38, 0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0"></path>
+                            <path id="circlePath" fill="none" d="M 50, 56 m -38, 0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0"></path>
                             <text fill="currentColor" fontSize="11" fontWeight="bold">
                                 <textPath href="#circlePath">
                                     Customize me
@@ -1020,31 +904,13 @@ const App: React.FC = () => {
                         </button>
                     </div>
                 </header>
-                <main className={`w-full bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-6 md:p-8 mt-16 transition-all duration-500 ${showCodePreview ? 'max-w-5xl' : 'max-w-xl'}`}>
-                    <div className="flex gap-8">
-                        <div className={`transition-all duration-300 ${showCodePreview ? 'w-3/5' : 'w-full'}`}>
-                            {renderContent()}
-                        </div>
-                        {showCodePreview && (
-                            <div className="w-2/5">
-                                {renderConfigurationPreview()}
-                            </div>
-                        )}
-                    </div>
-                    <div className="mt-6 pt-6 border-t border-white/10 text-center">
-                        <button
-                            onClick={() => setShowCodePreview(!showCodePreview)}
-                            className="flex items-center gap-2 text-sm p-2 rounded-md hover:bg-white/10 transition-colors mx-auto"
-                            style={{ color: 'var(--color-text-secondary)' }}
-                            aria-label={showCodePreview ? 'Hide code preview' : 'Show code preview'}
-                        >
-                            <Code className="w-4 h-4" />
-                            {showCodePreview ? 'Hide Live Code' : 'Show Live Code'}
-                        </button>
+                <main className="w-full bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-6 md:p-8 mt-16 transition-all duration-500 max-w-xl">
+                    <div className="w-full">
+                        {renderContent()}
                     </div>
                 </main>
                 <footer className="text-center mt-6 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                    <p>{uiTexts.footer}</p>
+                    <p>Crafted with Gemini. Your vision, framed.</p>
                 </footer>
             </div>
              <button

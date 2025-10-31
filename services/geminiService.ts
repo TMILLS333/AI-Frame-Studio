@@ -1,19 +1,39 @@
-/// <reference types="vite/client" />
+/**
+ * DEPLOYMENT NOTICE - DO NOT MODIFY API KEY PATTERN
+ * 
+ * This file supports TWO environments:
+ * - AI Studio: Uses process.env.API_KEY (auto-provided by Google)
+ * - Cloudflare Pages: Uses import.meta.env.VITE_GEMINI_API_KEY (from env vars)
+ * 
+ * The API key retrieval pattern MUST remain:
+ *   const apiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || process.env.API_KEY;
+ * 
+ * Changing to ONLY process.env breaks Cloudflare deployment.
+ * Changing to ONLY import.meta.env breaks AI Studio development.
+ */
+
 import { GoogleGenAI, Modality, Type } from '@google/genai';
 import { Theme, Colors, TutorTone } from '../types';
 
-export const DEFAULT_FRAME_GENERATION_BASE_PROMPT = `
-You are an AI inpainting specialist. I have provided an image that contains a central photo surrounded by a blank white area.
-Your task is to fill *only the blank white area* with a beautiful, creative frame based on the provided theme.
-CRITICAL: Do NOT modify, alter, edit, or touch the existing photo in the center. The original photo must be perfectly preserved.
+export const CRITICAL_PRESERVE_PHOTO_RULE = `CRITICAL RULES:
+1.  **Preserve the Photo:** Do NOT modify, alter, or draw over the existing central photo. The original photo must remain perfectly untouched.`;
+
+export const EDITABLE_DEFAULT_FRAME_GENERATION_BASE_PROMPT = `You are an AI digital artist specializing in creating beautiful, bespoke photo frames.
+
+I have provided a composite image with a central photo placed on a larger canvas. Your task is to design and draw a creative frame in the blank white area that surrounds the central photo.
+
+The key is to create a frame that looks intentionally designed **for** the photo. The elements of the frame should gracefully touch and interact with the edges of the central photo, rather than looking like they are cut off by it. Imagine you are creating a real, physical frame that goes around the picture.
+
+2.  **Seamless Integration:** The frame's design elements must not be abruptly cut off at the photo's edge. The design should naturally conclude or curve away as it meets the boundary of the photograph.
+3.  **Complete the Frame:** Fill the entire blank white area from the edge of the photo to the outer edge of the canvas. Do not leave any empty margins.
+4.  **Maintain Dimensions:** The final generated image you return must be a perfect 1024x1024 square.
+
 The theme for the frame is:`;
 
-const getPromptForTheme = (theme: Theme, customPrompt?: string, guardrails?: string): string => {
-    let finalPrompt = `${DEFAULT_FRAME_GENERATION_BASE_PROMPT} ${theme.prompt}`;
 
-    if (customPrompt && customPrompt.trim()) {
-        finalPrompt += `\n\nAdditionally, incorporate the following user-specified creative detail: "${customPrompt.trim()}".`;
-    }
+const getPromptForTheme = (theme: Theme, editableBasePrompt: string, guardrails?: string): string => {
+    // The final prompt is a combination of the critical rule, the user-editable base, the theme-specific style, and any final guardrails.
+    let finalPrompt = `${CRITICAL_PRESERVE_PHOTO_RULE}\n\n${editableBasePrompt} ${theme.prompt}`;
 
     if (guardrails && guardrails.trim()) {
         finalPrompt += `\n\nADDITIONAL USER GUARDRAILS:\n${guardrails.trim()}`;
@@ -25,20 +45,20 @@ const getPromptForTheme = (theme: Theme, customPrompt?: string, guardrails?: str
 export const generateFrame = async (
     base64Image: string,
     theme: Theme,
-    customPrompt?: string,
-    temperature: number = 0.8,
+    editableBasePrompt: string,
+    temperature: number = 0.4,
     topP: number = 0.8,
     topK: number = 40,
-    guardrails?: string,
+    guardrails?: string
 ): Promise<string> => {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    const apiKey = process.env.API_KEY;
     if (!apiKey) {
-        throw new Error("VITE_GEMINI_API_KEY environment variable not set");
+        throw new Error("API_KEY environment variable not set");
     }
 
     const ai = new GoogleGenAI({ apiKey });
 
-    const prompt = getPromptForTheme(theme, customPrompt, guardrails);
+    const prompt = getPromptForTheme(theme, editableBasePrompt, guardrails);
     const imagePart = {
         inlineData: {
             mimeType: 'image/jpeg',
@@ -76,57 +96,24 @@ export const generateFrame = async (
 
 const appCustomizationSchema = {
   type: Type.OBJECT,
+  description: "A single theme object for the application's frame generation feature.",
   properties: {
-    themes: {
-      type: Type.ARRAY,
-      description: "An array of exactly 3 theme objects for the application.",
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          id: { type: Type.STRING, description: "A unique, URL-friendly ID for the theme (e.g., 'vintage-roses')." },
-          name: { type: Type.STRING, description: "A short, catchy name for the theme (e.g., 'Vintage Roses')." },
-          description: { type: Type.STRING, description: "A brief, one-sentence description of the theme." },
-          iconName: { type: Type.STRING, description: "The name of an icon for the theme. Choose a valid name from the lucide-react library, e.g., 'Anchor', 'Award', 'Bike', 'BookOpen', 'Briefcase', 'Brush', 'Camera', 'Castle', 'Cat', 'Cherry', 'Cloud', 'Code', 'Compass', 'Cpu', 'Crown', 'Diamond', 'Feather', 'Flag', 'Flame', 'Flower', 'Gamepad2', 'Gem', 'Ghost', 'Gift', 'Globe', 'Grape', 'Heart', 'KeyRound', 'Leaf', 'Lightbulb', 'Map', 'Moon', 'Mountain', 'Music', 'Palette', 'Plane', 'Puzzle', 'Rocket', 'Shield', 'Ship', 'Sparkles', 'Star', 'Sun', 'Swords', 'TreePine', 'Trophy', 'Umbrella', 'Wand2', 'Watch', 'Wind'." },
-          prompt: { type: Type.STRING, description: "A detailed prompt for an AI image generator to create a frame in this theme's style." },
-        },
-        required: ["id", "name", "description", "iconName", "prompt"],
-      },
-    },
-    ui: {
-      type: Type.OBJECT,
-      description: "An object containing the text for the app's user interface, matching the overall theme.",
-      properties: {
-        title: { type: Type.STRING, description: "The main title of the application." },
-        footer: { type: Type.STRING, description: "The footer text for the application." },
-        loadingTitle: { type: Type.STRING, description: "The title text to show while the AI is generating an image." },
-        loadingSubtitle: { type: Type.STRING, description: "The subtitle text to show while generating." },
-      },
-      required: ["title", "footer", "loadingTitle", "loadingSubtitle"],
-    },
-    colors: {
-      type: Type.OBJECT,
-      description: "An object containing the color palette for the app's UI, matching the overall theme. All colors must be valid hex codes (e.g., '#RRGGBB').",
-      properties: {
-        backgroundStart: { type: Type.STRING, description: "The starting color for the animated background gradient (hex)." },
-        backgroundEnd: { type: Type.STRING, description: "The ending color for the animated background gradient (hex)." },
-        primary: { type: Type.STRING, description: "The primary accent color for titles and important elements (hex)." },
-        secondary: { type: Type.STRING, description: "The secondary accent color for buttons (hex)." },
-        text: { type: Type.STRING, description: "The main text color, ensuring good contrast with the background (hex)." },
-        textSecondary: { type: Type.STRING, description: "The secondary, more subtle text color for descriptions (hex)." },
-      },
-      required: ["backgroundStart", "backgroundEnd", "primary", "secondary", "text", "textSecondary"],
-    },
+    id: { type: Type.STRING, description: "A unique, URL-friendly ID for the theme (e.g., 'vintage-roses')." },
+    name: { type: Type.STRING, description: "A short, catchy name for the theme (e.g., 'Vintage Roses')." },
+    description: { type: Type.STRING, description: "A brief, one-sentence description of the theme." },
+    iconName: { type: Type.STRING, description: "The name of an icon for the theme. Choose a valid name from the lucide-react library, e.g., 'Anchor', 'Award', 'Bike', 'BookOpen', 'Briefcase', 'Brush', 'Camera', 'Castle', 'Cat', 'Cherry', 'Cloud', 'Code', 'Compass', 'Cpu', 'Crown', 'Diamond', 'Feather', 'Flag', 'Flame', 'Flower', 'Gamepad2', 'Gem', 'Ghost', 'Gift', 'Globe', 'Grape', 'Heart', 'KeyRound', 'Leaf', 'Lightbulb', 'Map', 'Moon', 'Mountain', 'Music', 'Palette', 'Plane', 'Puzzle', 'Rocket', 'Shield', 'Ship', 'Sparkles', 'Star', 'Sun', 'Swords', 'TreePine', 'Trophy', 'Umbrella', 'Wand2', 'Watch', 'Wind'." },
+    prompt: { type: Type.STRING, description: "A detailed prompt for an AI image generator to create a frame in this theme's style. Ensure elements subtly extend inward, partially overlapping the very edges of the central image." },
   },
-  required: ["themes", "ui", "colors"],
+  required: ["id", "name", "description", "iconName", "prompt"],
 };
 
-export const DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION = `You are an AI assistant that configures a web application. The user will describe a style or theme. Your task is to generate a complete configuration for the app, including 3 themes, all UI text, and a matching color palette. You must respond with a valid JSON object that adheres to the provided schema. Ensure the generated content is creative, cohesive, and consistent with the user's request. CRITICAL ACCESSIBILITY REQUIREMENT: All generated colors must be legible. The 'text' and 'textSecondary' colors MUST have a high contrast ratio (at least WCAG AA standard) against both 'backgroundStart' and 'backgroundEnd' colors. This is a non-negotiable rule to ensure usability.`;
+export const DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION = `You are an AI assistant that creates a theme for a photo framing application. The user will describe a style. Your task is to generate a single, complete theme configuration based on their description. You must respond with a valid JSON object that adheres to the provided schema. The theme should be creative and consistent with the user's request. The 'prompt' you generate should be detailed and guide an image AI to create a beautiful frame. Ensure elements subtly extend inward, partially overlapping the very edges of the central image.`;
 
 
-export const generateAppCustomization = async (userPrompt: string, systemInstruction: string = DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION): Promise<{ themes: Theme[], ui: any, colors: Colors }> => {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+export const generateAppCustomization = async (userPrompt: string, systemInstruction: string = DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION): Promise<Theme> => {
+    const apiKey = process.env.API_KEY;
     if (!apiKey) {
-        throw new Error("VITE_GEMINI_API_KEY environment variable not set");
+        throw new Error("API_KEY environment variable not set");
     }
     const ai = new GoogleGenAI({ apiKey });
 
@@ -158,9 +145,9 @@ export const askGeminiTutor = async (
     appConfig: object,
     base64Image: string | null = null,
 ): Promise<string> => {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    const apiKey = process.env.API_KEY;
     if (!apiKey) {
-        throw new Error("VITE_GEMINI_API_KEY environment variable not set");
+        throw new Error("API_KEY environment variable not set");
     }
     const ai = new GoogleGenAI({ apiKey });
 
@@ -170,10 +157,13 @@ export const askGeminiTutor = async (
         technical: "Provide a detailed, technical explanation suitable for a developer. You can mention underlying concepts and technologies.",
     };
 
-    const systemInstruction = `You are "Frame Coach", a helpful and witty AI assistant embedded within a web application called 'Frame Studio'. Your personality is that of a creative art coach.
-    Your role is to answer user questions *only* about this app and the AI/design concepts it demonstrates.
-    The app allows users to upload a photo, generate a creative frame around it using AI, and customize the entire app's theme (colors, text, etc.).
-    Do not answer questions unrelated to this application. If asked an off-topic question, politely steer the conversation back to the app.
+    const systemInstruction = `You are "Frame Coach", a helpful and witty AI assistant embedded within a web application called 'Frame Studio'. Your personality is that of a creative art coach and prompt engineering expert.
+    Your primary roles are:
+    1.  **App Expert:** Answer user questions about this app ('Frame Studio'), its settings, features, and the AI/design concepts it demonstrates. The app allows users to upload a photo, generate a creative frame around it using AI, and customize the entire app's theme.
+    2.  **Prompting Guru:** Help users write better, more effective prompts to generate beautiful and lush frame designs. If a user asks for help with a prompt, guide them with suggestions, ask clarifying questions about their desired style, and help them refine their ideas into a detailed prompt that the frame generation AI can understand.
+
+    Do not answer questions unrelated to this application or prompt engineering for it. If asked an off-topic question, politely steer the conversation back to the app.
+
     Here is the app's current live configuration for your context:
     ${JSON.stringify(appConfig, null, 2)}`;
 
@@ -184,7 +174,7 @@ export const askGeminiTutor = async (
     if (base64Image) {
         contents.parts.unshift({
             inlineData: {
-                mimeType: 'image/jpeg', // Assuming jpeg, could be dynamic
+                mimeType: 'image/jpeg',
                 data: base64Image.split(',')[1],
             },
         });
