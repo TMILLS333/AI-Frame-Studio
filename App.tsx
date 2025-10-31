@@ -15,11 +15,11 @@ import {
 
 const DEFAULT_THEMES: Theme[] = [
   {
-    id: 'my-theme',
-    name: 'My Theme',
-    description: 'Your personal, customizable frame style.',
-    iconName: 'Brush',
-    prompt: `'My Theme'. Create a unique and artistic frame based on the user's creative details. The style should be visually interesting and well-composed, complementing the central photograph.`
+    id: 'starlight-studio',
+    name: 'Starlight Studio',
+    description: 'A celestial theme with glowing neon and deep space vibes.',
+    iconName: 'Sparkles',
+    prompt: `Create a frame with a dark, deep space background, filled with swirling nebulae in shades of dark blue and purple. Add glowing, futuristic neon accents in vibrant yellow and magenta, forming abstract geometric patterns or light trails around the photo. The overall feeling should be futuristic, cosmic, and vibrant.`
   },
 ];
 
