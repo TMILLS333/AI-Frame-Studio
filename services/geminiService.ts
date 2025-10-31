@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { GoogleGenAI, Modality, Type } from '@google/genai';
 import { Theme, Colors, TutorTone } from '../types';
 
@@ -30,11 +31,12 @@ export const generateFrame = async (
     topK: number = 40,
     guardrails?: string,
 ): Promise<string> => {
-    if (!process.env.API_KEY) {
-        throw new Error("API_KEY environment variable not set");
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error("VITE_GEMINI_API_KEY environment variable not set");
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
 
     const prompt = getPromptForTheme(theme, customPrompt, guardrails);
     const imagePart = {
@@ -122,10 +124,11 @@ export const DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION = `You are an AI assis
 
 
 export const generateAppCustomization = async (userPrompt: string, systemInstruction: string = DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION): Promise<{ themes: Theme[], ui: any, colors: Colors }> => {
-    if (!process.env.API_KEY) {
-        throw new Error("API_KEY environment variable not set");
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error("VITE_GEMINI_API_KEY environment variable not set");
     }
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
 
     try {
         const response = await ai.models.generateContent({
@@ -155,10 +158,11 @@ export const askGeminiTutor = async (
     appConfig: object,
     base64Image: string | null = null,
 ): Promise<string> => {
-    if (!process.env.API_KEY) {
-        throw new Error("API_KEY environment variable not set");
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error("VITE_GEMINI_API_KEY environment variable not set");
     }
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
 
     const toneInstructions = {
         simple: "Explain your answer in simple, non-technical terms, using an analogy if possible. Be friendly and encouraging.",
