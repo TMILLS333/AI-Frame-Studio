@@ -97,7 +97,7 @@ const GeminiTutor: React.FC<{ appConfig: object, colors: Colors, isOpen: boolean
     };
 
     return (
-        <div className={`fixed top-0 right-0 h-full bg-gray-900 border-l border-white/20 shadow-2xl z-50 flex flex-col transition-transform duration-500 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ width: '400px', maxWidth: '90vw' }}>
+        <div className={`fixed top-0 right-0 h-full bg-gray-900 border-l border-white/20 shadow-2xl z-50 flex flex-col transition-transform duration-500 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'} w-full md:w-[400px]`}>
             <header className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
                 <div className="flex items-center gap-3">
                     <Brush className="w-6 h-6" style={{ color: colors.primary }}/>
@@ -461,7 +461,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     };
 
     return (
-        <div className={`fixed top-0 right-0 h-full bg-gray-900 border-l border-white/20 shadow-2xl z-50 flex flex-col transition-transform duration-500 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ width: '500px', maxWidth: '90vw' }}>
+        <div className={`fixed top-0 right-0 h-full bg-gray-900 border-l border-white/20 shadow-2xl z-50 flex flex-col transition-transform duration-500 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'} w-full md:w-[500px]`}>
             <header className="flex items-center justify-between p-4 border-b border-white/10 flex-shrink-0">
                 <div className="flex items-center gap-3">
                     <Settings className="w-6 h-6" style={{ color: colors.primary }}/>
@@ -847,7 +847,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-full font-sans transition-colors duration-1000">
+    <div className="min-h-screen w-full font-sans transition-colors duration-1000 overflow-x-hidden">
         <SettingsPanel
             isOpen={isSettingsPanelOpen}
             onClose={handleSettingsClose}
@@ -875,11 +875,11 @@ const App: React.FC = () => {
                 </div>
             ))}
         </div>
-        <div className={`relative min-h-screen transition-all duration-500 ease-in-out ${isTutorOpen ? 'pr-[400px]' : isSettingsPanelOpen ? 'pr-[500px]' : 'pr-0'}`}>
+        <div className="relative min-h-screen">
             <div className="flex flex-col items-center p-4 pt-20">
-                <header className="w-full flex justify-between items-center px-6 pt-4 transition-all duration-500 max-w-xl">
-                    <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--color-primary)' }}>AI Frame Studio</h1>
-                    <div className={`relative flex items-center justify-center transition-opacity duration-300 ${isSettingsPanelOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+                <header className="w-full flex justify-between items-center px-4 md:px-6 pt-4 transition-all duration-500 max-w-xl">
+                    <h1 className="text-2xl md:text-3xl font-bold tracking-tight" style={{ color: 'var(--color-primary)' }}>AI Frame Studio</h1>
+                    <div className={`relative flex items-center justify-center transition-opacity duration-300 ${isSettingsPanelOpen || isTutorOpen ? 'opacity-0 pointer-events-none md:opacity-100' : 'opacity-100'}`}>
                         <svg 
                             className="absolute w-32 h-32" 
                             viewBox="0 0 100 100" 
