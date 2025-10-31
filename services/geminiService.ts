@@ -51,7 +51,7 @@ export const generateFrame = async (
     topK: number = 40,
     guardrails?: string
 ): Promise<string> => {
-    const apiKey = process.env.API_KEY;
+    const apiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || process.env.API_KEY;
     if (!apiKey) {
         throw new Error("API_KEY environment variable not set");
     }
@@ -111,7 +111,7 @@ export const DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION = `You are an AI assis
 
 
 export const generateAppCustomization = async (userPrompt: string, systemInstruction: string = DEFAULT_APP_CUSTOMIZATION_SYSTEM_INSTRUCTION): Promise<Theme> => {
-    const apiKey = process.env.API_KEY;
+    const apiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || process.env.API_KEY;
     if (!apiKey) {
         throw new Error("API_KEY environment variable not set");
     }
@@ -145,7 +145,7 @@ export const askGeminiTutor = async (
     appConfig: object,
     base64Image: string | null = null,
 ): Promise<string> => {
-    const apiKey = process.env.API_KEY;
+    const apiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || process.env.API_KEY;
     if (!apiKey) {
         throw new Error("API_KEY environment variable not set");
     }
